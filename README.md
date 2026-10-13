@@ -96,12 +96,75 @@ Si ton fichier a un autre schéma, adapte ensemble :
 
 L'ingestion est explicite : elle ne déduit pas les types. Le chargement BigQuery associe les colonnes à partir de l'en-tête; les en-têtes doivent donc correspondre au schéma attendu.
 
+## Installer les outils et créer le projet GCP
+
+Les commandes ci-dessous sont prévues pour Windows PowerShell. Exécute-les depuis la racine du dépôt lorsqu'elles utilisent des chemins comme `./dbt` ou `./terraform`.
+
+### 1. Créer un projet Google Cloud et activer la facturation
+
+Dans la [console Google Cloud](https://console.cloud.google.com/), ouvre **IAM et administration → Gérer les ressources → Créer un projet**. Donne-lui un nom, par exemple `Analyse de marché`, puis choisis son organisation si tu utilises un compte professionnel. Note l'ID du projet : il doit être unique, contenir entre 6 et 30 caractères (lettres minuscules, chiffres et tirets) et ne peut pas être modifié après la création. Les instructions officielles sont dans [Créer et gérer des projets](https://docs.cloud.google.com/resource-manager/docs/creating-managing-projects).
+
+Associe ensuite le projet à un compte Cloud Billing actif depuis la page **Facturation** de la console. Les ressources et services du projet ne fonctionneront pas sans facturation active. Pour les étapes détaillées et les rôles requis, consulte [Activer la facturation d'un projet](https://docs.cloud.google.com/billing/docs/how-to/modify-project). Tu peux aussi demander à ton administrateur de créer le projet et de l'associer au compte de facturation de ton organisation.
+
+### 2. Installer Google Cloud CLI et se connecter
+
+Télécharge et installe le [Google Cloud CLI pour Windows](https://docs.cloud.google.com/sdk/docs/install-sdk), puis ouvre une nouvelle fenêtre PowerShell et initialise la connexion :
+
+~~~powershell
+gcloud init
+$ProjectId = "market-analysis-abdel-2026" # Remplace par l'ID réel créé à l'étape précédente.
+gcloud config set project $ProjectId
+gcloud auth application-default login
+gcloud config list
+~~~
+
+`gcloud init` ouvre le navigateur pour connecter ton compte Google et sélectionner un projet. `gcloud auth application-default login` crée les identifiants locaux qu'utilisent Terraform et le dbt exécuté depuis ton poste. Il n'est pas nécessaire de télécharger une clé JSON de compte de service. Plus d'informations : [identifiants ADC](https://docs.cloud.google.com/docs/authentication/provide-credentials-adc).
+
+Si tu préfères créer le projet en ligne de commande, fais-le après l'installation de `gcloud`, puis lie un compte de facturation actif :
+
+~~~powershell
+gcloud billing accounts list
+$ProjectId = "market-analysis-abdel-2026" # Cet ID doit être unique dans Google Cloud.
+$BillingAccountId = "000000-000000-000000" # Remplace par l'ID de ton compte de facturation.
+gcloud projects create $ProjectId --name="Analyse de marché" --set-as-default
+gcloud billing projects link $ProjectId --billing-account=$BillingAccountId
+gcloud config set project $ProjectId
+gcloud auth application-default login
+~~~
+
+La création et la liaison du projet nécessitent les autorisations correspondantes dans ton organisation et sur le compte de facturation.
+
+### 3. Installer Terraform
+
+Télécharge l'archive Windows depuis la page officielle [Installer Terraform](https://developer.hashicorp.com/terraform/install), décompresse `terraform.exe` dans un dossier, puis ajoute ce dossier à la variable d'environnement utilisateur `Path`. Ferme et rouvre PowerShell pour recharger le `Path`, puis vérifie la version :
+
+~~~powershell
+terraform -version
+~~~
+
+Ce dépôt requiert Terraform 1.6 ou plus récent, mais inférieur à 2.0. La page HashiCorp propose aussi des méthodes d'installation avec un gestionnaire de paquets.
+
+### 4. Installer Python et dbt pour le développement local
+
+L'installation locale de dbt est facultative : le pipeline déployé lance dbt dans l'image Cloud Run. Pour exécuter les modèles depuis ton poste, installe [Python 3.12 pour Windows](https://www.python.org/downloads/windows/), puis crée un environnement virtuel dans le dépôt et installe l'adaptateur BigQuery prévu par le projet (`dbt-bigquery==1.9.1`) :
+
+~~~powershell
+py -3.12 --version
+py -3.12 -m venv .venv
+./.venv/Scripts/Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r ./dbt/requirements.txt
+dbt --version
+~~~
+
+L'environnement virtuel évite de mélanger les dépendances de ce dépôt avec celles d'autres projets. La procédure `pip install dbt-bigquery` est décrite dans la [documentation dbt pour BigQuery](https://docs.getdbt.com/docs/local/connect-data-platform/bigquery-setup?version=1.12).
+
 ## Prérequis
 
 1. Un projet Google Cloud existant avec facturation active.
-2. gcloud initialisé sur ce projet.
+2. Google Cloud CLI (`gcloud`) installé, connecté et configuré sur ce projet.
 3. Terraform version 1.6 ou plus récente, mais inférieure à 2.0.
-4. Python 3.12 pour l'image d'ingestion; Python 3.11 ou 3.12 convient à dbt.
+4. Python 3.12 pour l'image d'ingestion; Python 3.11 ou 3.12 convient à dbt en local.
 5. Docker n'est pas nécessaire sur ton poste : Cloud Build construit l'image.
 6. Un dossier Drive contenant de vrais fichiers CSV téléversés dans Drive.
 
@@ -116,7 +179,6 @@ $ProjectId = "mon-projet-gcp"
 $Region = "europe-west1"
 $ImageTag = "v1"
 gcloud config set project $ProjectId
-gcloud auth login
 ~~~
 
 Récupère l'ID du dossier Drive dans son URL (drive.google.com/drive/folders/ID_DU_DOSSIER) et crée le fichier de variables Terraform :
@@ -184,7 +246,7 @@ gcloud run jobs execute drive-csv-ingestor --project $ProjectId --region $Region
 
 Le job archive le fichier sous landing/ dans le bucket, le charge dans une table de staging temporaire, puis fait un MERGE dans market_analysis_raw.market_prices. Il lance ensuite dbt run pour actualiser les modèles analytiques. Un marqueur JSON de fichier est écrit dans state/processed/ après succès; un marqueur state/dbt-pending.json permet de reprendre dbt si la transformation échoue.
 
-### 7. Installer et lancer dbt en local (facultatif)
+### 7. Lancer dbt en local (facultatif)
 
 Configure l'authentification locale sans clé de compte de service :
 
@@ -196,19 +258,17 @@ $env:DBT_DATASET = "market_analysis_marts"
 $env:BQ_LOCATION = "EU"
 ~~~
 
-La synchronisation Cloud Run a déjà lancé dbt automatiquement après l'ingestion. Pour lancer les transformations depuis ton poste pendant le développement, crée un environnement Python :
+La synchronisation Cloud Run a déjà lancé dbt automatiquement après l'ingestion. Pour lancer les transformations depuis ton poste pendant le développement, active l'environnement Python créé dans la section [Installer les outils et créer le projet GCP](#installer-les-outils-et-créer-le-projet-gcp), puis copie le profil d'exemple :
 
 ~~~powershell
-python -m venv .venv
 ./.venv/Scripts/Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r ./dbt/requirements.txt
 Copy-Item ./dbt/profiles.yml.example ./dbt/profiles.yml
 ~~~
 
-Puis exécute les transformations depuis la racine :
+Vérifie la connexion à BigQuery, puis exécute les transformations depuis la racine :
 
 ~~~powershell
+dbt --project-dir ./dbt --profiles-dir ./dbt debug
 dbt --project-dir ./dbt --profiles-dir ./dbt run
 ~~~
 
