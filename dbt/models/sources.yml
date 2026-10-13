@@ -1,0 +1,24 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Données de prix de marché chargées depuis les CSV Drive.
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_RAW_DATASET', 'market_analysis_raw') }}"
+    tables:
+      - name: market_prices
+        description: Une ligne par ticker, date et version de fichier source.
+        columns:
+          - name: price_date
+            description: Date de cotation.
+          - name: ticker
+            description: Symbole du titre ou de l'instrument.
+          - name: close
+            description: Cours de clôture non ajusté.
+          - name: adjusted_close
+            description: Cours de clôture ajusté, potentiellement nul.
+          - name: _source_file_key
+            description: Identifiant stable de l'import du fichier Drive.
+          - name: _ingested_at
+            description: Date d'ingestion UTC.
+

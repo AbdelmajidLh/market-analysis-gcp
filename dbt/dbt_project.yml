@@ -1,0 +1,18 @@
+name: "market_analysis"
+version: "1.0.0"
+config-version: 2
+
+profile: "market_analysis"
+
+model-paths: ["models"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+
+models:
+  market_analysis:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

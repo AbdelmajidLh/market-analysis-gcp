@@ -1,0 +1,14 @@
+.gcloudignore
+.git
+.gitignore
+README.md
+terraform/
+queries/
+sample_data/
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/profiles.yml
+.venv/
+__pycache__/
+

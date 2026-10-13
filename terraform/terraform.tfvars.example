@@ -1,0 +1,16 @@
+project_id       = "mon-projet-gcp"
+raw_bucket_name  = "mon-projet-gcp-market-analysis-raw-123456"
+drive_folder_id  = "ID_DU_DOSSIER_DRIVE"
+region           = "europe-west1"
+dataset_location = "EU"
+scheduler_paused = true
+
+# Principal dbt facultatif. Remplace par ton compte :
+# dbt_principal = "user:prenom.nom@example.com"
+
+# Pour un CSV français séparé par des points-virgules :
+# csv_delimiter = ";"
+
+# Planning personnalisable :
+# schedule = "*/10 * * * *"
+# schedule_time_zone = "Europe/Paris"

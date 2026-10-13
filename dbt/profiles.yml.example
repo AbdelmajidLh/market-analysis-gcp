@@ -1,0 +1,14 @@
+market_analysis:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('DBT_DATASET', 'market_analysis_marts') }}"
+      location: "{{ env_var('BQ_LOCATION', 'EU') }}"
+      threads: 4
+      priority: interactive
+      job_execution_timeout_seconds: 300
+      job_retries: 1
+

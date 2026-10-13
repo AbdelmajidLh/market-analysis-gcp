@@ -1,0 +1,15 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+.venv/
+__pycache__/
+*.py[cod]
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/profiles.yml
+.env
+
