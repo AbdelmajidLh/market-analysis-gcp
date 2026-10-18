@@ -397,37 +397,37 @@ La suppression Terraform laisse les API activées (`disable_on_destroy = false`)
 
 ~~~text
 .
-├── .gcloudignore
-├── .gitignore
-├── Dockerfile
-├── README.md
+├── .gcloudignore             # Fichiers exclus de l'envoi source à Cloud Build
+├── .gitignore                # Fichiers locaux et secrets exclus de Git
+├── Dockerfile                # Image du job Python avec le projet dbt
+├── README.md                 # Installation, configuration et exploitation du pipeline
 ├── dbt/
-│   ├── dbt_project.yml
-│   ├── profiles.yml.example
-│   ├── requirements.txt
+│   ├── dbt_project.yml       # Paramètres du projet et matérialisation des modèles
+│   ├── profiles.yml.example # Connexion dbt à BigQuery par variables d'environnement
+│   ├── requirements.txt     # Adaptateur BigQuery pour dbt
 │   └── models/
-│       ├── sources.yml
+│       ├── sources.yml      # Déclaration de la table BigQuery source
 │       ├── staging/
-│       │   └── stg_market_prices.sql
+│       │   └── stg_market_prices.sql # Vue de nettoyage et déduplication des cours
 │       └── marts/
-│           ├── fct_daily_returns.sql
-│           └── mart_monthly_performance.sql
+│           ├── fct_daily_returns.sql       # Rendements et cours journaliers
+│           └── mart_monthly_performance.sql # Indicateurs de performance mensuelle
 ├── ingestion/
-│   ├── main.py
-│   └── requirements.txt
+│   ├── main.py           # Ingestion Drive vers GCS et BigQuery, puis lancement de dbt
+│   └── requirements.txt  # Dépendances Python du job d'ingestion
 ├── notebooks/
-│   └── dev_csv_precheck.ipynb
+│   └── dev_csv_precheck.ipynb # Vérification locale du CSV avant ingestion
 ├── queries/
-│   └── market_analysis.sql
+│   └── market_analysis.sql # Requêtes de reporting à lancer manuellement dans BigQuery
 ├── sample_data/
-│   └── market_prices.csv
+│   └── market_prices.csv # CSV d'exemple respectant le schéma attendu
 └── terraform/
-    ├── .terraform.lock.hcl
-    ├── main.tf
-    ├── outputs.tf
-    ├── terraform.tfvars.example
-    ├── variables.tf
-    └── versions.tf
+    ├── .terraform.lock.hcl     # Versions verrouillées des providers Terraform
+    ├── main.tf                 # Ressources GCP, IAM et configuration du job planifié
+    ├── outputs.tf              # Valeurs utiles affichées après déploiement
+    ├── terraform.tfvars.example # Exemple de valeurs à personnaliser localement
+    ├── variables.tf            # Variables et valeurs par défaut Terraform
+    └── versions.tf             # Versions requises de Terraform et des providers
 ~~~
 
 ## Suppression Terraform des ressources et des données
