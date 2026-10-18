@@ -397,12 +397,37 @@ La suppression Terraform laisse les API activées (`disable_on_destroy = false`)
 
 ~~~text
 .
-├── Dockerfile            # Image contenant l'ingestion et dbt
-├── dbt/                  # Projet dbt et profil d'exemple
-├── ingestion/            # Job Python Drive -> GCS -> BigQuery
-├── queries/              # Requêtes analytiques BigQuery
-├── sample_data/          # CSV d'exemple
-└── terraform/            # Infrastructure GCP et IAM
+├── .gcloudignore
+├── .gitignore
+├── Dockerfile
+├── README.md
+├── dbt/
+│   ├── dbt_project.yml
+│   ├── profiles.yml.example
+│   ├── requirements.txt
+│   └── models/
+│       ├── sources.yml
+│       ├── staging/
+│       │   └── stg_market_prices.sql
+│       └── marts/
+│           ├── fct_daily_returns.sql
+│           └── mart_monthly_performance.sql
+├── ingestion/
+│   ├── main.py
+│   └── requirements.txt
+├── notebooks/
+│   └── dev_csv_precheck.ipynb
+├── queries/
+│   └── market_analysis.sql
+├── sample_data/
+│   └── market_prices.csv
+└── terraform/
+    ├── .terraform.lock.hcl
+    ├── main.tf
+    ├── outputs.tf
+    ├── terraform.tfvars.example
+    ├── variables.tf
+    └── versions.tf
 ~~~
 
 ## Suppression Terraform des ressources et des données
