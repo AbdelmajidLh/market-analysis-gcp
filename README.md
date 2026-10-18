@@ -100,11 +100,9 @@ L'ingestion est explicite : elle ne déduit pas les types. Le chargement BigQuer
 
 Les commandes ci-dessous sont prévues pour Windows PowerShell. Exécute-les depuis la racine du dépôt lorsqu'elles utilisent des chemins comme `./dbt` ou `./terraform`.
 
-### 1. Créer un projet Google Cloud et activer la facturation
+### 1. Utiliser le projet Google Cloud existant
 
-Dans la [console Google Cloud](https://console.cloud.google.com/), ouvre **IAM et administration → Gérer les ressources → Créer un projet**. Donne-lui un nom, par exemple `Analyse de marché`, puis choisis son organisation si tu utilises un compte professionnel. Note l'ID du projet : il doit être unique, contenir entre 6 et 30 caractères (lettres minuscules, chiffres et tirets) et ne peut pas être modifié après la création. Les instructions officielles sont dans [Créer et gérer des projets](https://docs.cloud.google.com/resource-manager/docs/creating-managing-projects).
-
-Associe ensuite le projet à un compte Cloud Billing actif depuis la page **Facturation** de la console. Les ressources et services du projet ne fonctionneront pas sans facturation active. Pour les étapes détaillées et les rôles requis, consulte [Activer la facturation d'un projet](https://docs.cloud.google.com/billing/docs/how-to/modify-project). Tu peux aussi demander à ton administrateur de créer le projet et de l'associer au compte de facturation de ton organisation.
+Ce dépôt est configuré pour le projet `project-b2238b62-da1a-46fc-a02`. Utilise ce projet pour toutes les ressources GCP; ne crée pas un projet supplémentaire. Dans la [console Google Cloud](https://console.cloud.google.com/), vérifie que ce projet est actif et associé à un compte Cloud Billing. Pour les étapes détaillées et les rôles requis, consulte [Activer la facturation d'un projet](https://docs.cloud.google.com/billing/docs/how-to/modify-project) ou demande à ton administrateur.
 
 ### 2. Installer Google Cloud CLI et se connecter
 
@@ -112,27 +110,13 @@ Télécharge et installe le [Google Cloud CLI pour Windows](https://docs.cloud.g
 
 ~~~powershell
 gcloud init
-$ProjectId = "market-analysis-abdel-2026" # Remplace par l'ID réel créé à l'étape précédente.
+$ProjectId = "project-b2238b62-da1a-46fc-a02"
 gcloud config set project $ProjectId
 gcloud auth application-default login
 gcloud config list
 ~~~
 
 `gcloud init` ouvre le navigateur pour connecter ton compte Google et sélectionner un projet. `gcloud auth application-default login` crée les identifiants locaux qu'utilisent Terraform et le dbt exécuté depuis ton poste. Il n'est pas nécessaire de télécharger une clé JSON de compte de service. Plus d'informations : [identifiants ADC](https://docs.cloud.google.com/docs/authentication/provide-credentials-adc).
-
-Si tu préfères créer le projet en ligne de commande, fais-le après l'installation de `gcloud`, puis lie un compte de facturation actif :
-
-~~~powershell
-gcloud billing accounts list
-$ProjectId = "market-analysis-abdel-2026" # Cet ID doit être unique dans Google Cloud.
-$BillingAccountId = "000000-000000-000000" # Remplace par l'ID de ton compte de facturation.
-gcloud projects create $ProjectId --name="Analyse de marché" --set-as-default
-gcloud billing projects link $ProjectId --billing-account=$BillingAccountId
-gcloud config set project $ProjectId
-gcloud auth application-default login
-~~~
-
-La création et la liaison du projet nécessitent les autorisations correspondantes dans ton organisation et sur le compte de facturation.
 
 ### 3. Installer Terraform
 
@@ -174,13 +158,6 @@ Le compte qui applique Terraform doit pouvoir activer des API, créer les ressou
 
 ### 1. Initialiser les variables locales
 
-~~~powershell
-$ProjectId = "mon-projet-gcp"
-$Region = "europe-west1"
-$ImageTag = "v1"
-gcloud config set project $ProjectId
-~~~
-
 Récupère l'ID du dossier Drive dans son URL (drive.google.com/drive/folders/ID_DU_DOSSIER) et crée le fichier de variables Terraform :
 
 ~~~powershell
@@ -189,6 +166,17 @@ notepad ./terraform/terraform.tfvars
 ~~~
 
 Remplace le projet, l'ID Drive et le nom du bucket par des valeurs uniques. Le nom du bucket est globalement unique et ne doit pas déjà exister. Conserve dataset_location = "EU" si tu gardes les valeurs par défaut.
+
+Définis ensuite les variables PowerShell avec les mêmes valeurs que `project_id`, `region` et `image_tag` dans `terraform/terraform.tfvars` (ou les valeurs par défaut de Terraform pour `image_tag`) :
+
+~~~powershell
+$ProjectId = "project-b2238b62-da1a-46fc-a02"
+$Region = "europe-west1"
+$ImageTag = "v1"
+gcloud config set project $ProjectId
+~~~
+
+Le projet, la région et le tag utilisés par les commandes `gcloud` doivent correspondre à ceux de Terraform. Sinon, Cloud Build peut pousser l'image vers un autre projet ou dépôt que celui provisionné par Terraform.
 
 Pour que Terraform prépare aussi les droits de dbt, indique ton compte Google :
 
@@ -202,24 +190,36 @@ Cette variable est facultative; si elle est vide, attribue ensuite les rôles Bi
 
 ~~~powershell
 terraform -chdir=terraform init
-terraform -chdir=terraform apply -target=google_project_service.required -target=google_artifact_registry_repository.pipeline -var-file=terraform.tfvars
+terraform -chdir=terraform apply `
+  '-target=google_project_service.required' `
+  '-target=google_artifact_registry_repository.pipeline' `
+  '-var-file=terraform.tfvars'
 ~~~
 
 Lis le plan affiché, puis confirme l'application. Cette première passe ciblée ne crée que les API nécessaires et Artifact Registry, pour que Cloud Build dispose du dépôt avant la création du job Cloud Run.
 
+Après cette passe ciblée, vérifie les changements restants avec un plan complet :
+
+~~~powershell
+terraform -chdir=terraform plan '-var-file=terraform.tfvars'
+~~~
+
 ### 3. Construire l'image d'ingestion
 
 ~~~powershell
-$Image = "$Region-docker.pkg.dev/$ProjectId/market-analysis/drive-ingestor:$ImageTag"
+$ArtifactRegistryRepository = "market-analysis"
+$IngestorImageName = "drive-ingestor"
+$Image = "${Region}-docker.pkg.dev/${ProjectId}/${ArtifactRegistryRepository}/${IngestorImageName}:$ImageTag"
+gcloud artifacts repositories describe $ArtifactRegistryRepository --project $ProjectId --location $Region
 gcloud builds submit . --project $ProjectId --region $Region --tag $Image
 ~~~
 
-La commande construit le Dockerfile à la racine et inclut les répertoires ingestion/ et dbt/. Le fichier .gcloudignore exclut l'infrastructure et les données d'exemple. Le dépôt doit être Artifact Registry market-analysis, comme dans les valeurs Terraform par défaut. Si tu changes artifact_registry_repository ou ingestor_image_name, construis avec les mêmes valeurs. Le compte Cloud Build doit pouvoir écrire dans Artifact Registry; si le build échoue avec PERMISSION_DENIED, demande à l'administrateur d'accorder roles/artifactregistry.writer au compte de build du projet sur ce dépôt.
+La commande de vérification doit trouver le dépôt avant le build. Le projet, la région et le nom du dépôt dans l'image doivent correspondre à `project_id`, `region` et `artifact_registry_repository` dans Terraform. L'image et le tag doivent aussi correspondre à `ingestor_image_name` et `image_tag`; si tu personnalises ces valeurs Terraform, modifie également les variables PowerShell ci-dessus. La commande construit le Dockerfile à la racine et inclut les répertoires ingestion/ et dbt/. Le fichier .gcloudignore exclut l'infrastructure et les données d'exemple. Le compte Cloud Build doit pouvoir écrire dans Artifact Registry; en cas de `PERMISSION_DENIED`, demande à l'administrateur d'accorder `roles/artifactregistry.writer` au compte de build du projet sur ce dépôt.
 
 ### 4. Créer le pipeline GCP
 
 ~~~powershell
-terraform -chdir=terraform apply -var-file=terraform.tfvars
+terraform -chdir=terraform apply '-var-file=terraform.tfvars'
 ~~~
 
 Après lecture du plan et confirmation, Terraform crée le bucket, les datasets et la table BigQuery, les identités IAM, le job Cloud Run et son déclencheur Cloud Scheduler. Le déclencheur est créé en pause afin que tu puisses partager le dossier Drive avant les premières exécutions.
@@ -280,14 +280,14 @@ Les modèles créés dans market_analysis_marts sont :
 | fct_daily_returns | Table partitionnée par date | Cours précédent, rendement quotidien et volume. Le rendement utilise adjusted_close si disponible, sinon close. |
 | mart_monthly_performance | Table partitionnée par mois | Rendement mensuel, moyenne et volatilité des rendements journaliers, volume total et nombre de séances. |
 
-Les rendements dans les modèles sont des ratios décimaux : 0.05 correspond à 5 %. Les requêtes d'exemple sont dans queries/market_analysis.sql. Remplace mon-projet-gcp par ton ID projet avant d'exécuter le fichier dans l'éditeur BigQuery.
+Les rendements dans les modèles sont des ratios décimaux : 0.05 correspond à 5 %. Les requêtes d'exemple dans queries/market_analysis.sql ciblent le projet `project-b2238b62-da1a-46fc-a02`.
 
 ### 8. Activer le planning et consulter les logs
 
 Une fois le partage Drive vérifié et une ingestion manuelle réussie, modifie terraform/terraform.tfvars pour passer scheduler_paused à false, puis applique le changement :
 
 ~~~powershell
-terraform -chdir=terraform apply -var-file=terraform.tfvars
+terraform -chdir=terraform apply '-var-file=terraform.tfvars'
 ~~~
 
 Consulte ensuite le planning, les exécutions et les journaux :
@@ -327,7 +327,8 @@ Si le CSV contient des ventes, des crypto-actifs ou des données de campagne, ga
 | Valeurs numériques invalides | Utilise un point comme séparateur décimal; les valeurs comme 12,34 doivent être normalisées avant le chargement. |
 | Permission denied BigQuery | L'ingestor a bigquery.jobUser et bigquery.dataEditor sur raw et marts. dbt local a bigquery.jobUser, dataViewer sur raw et dataEditor sur marts. |
 | dbt n'authentifie pas | Vérifie gcloud auth application-default login, GCP_PROJECT_ID, BQ_LOCATION et les droits du compte local. |
-| Le build ne pousse pas l'image | Le compte Cloud Build a roles/artifactregistry.writer sur le dépôt Artifact Registry. |
+| `PERMISSION_DENIED` au push | Le compte Cloud Build a `roles/artifactregistry.writer` sur le dépôt Artifact Registry. |
+| `name unknown: Repository ... not found` au push | Vérifie que le dépôt existe dans le même projet et la même région que l'URL de l'image; compare avec `project_id`, `region` et `artifact_registry_repository` dans `terraform/terraform.tfvars`. |
 | Le job exécute une ancienne image | Incrémente image_tag, reconstruis l'image avec ce tag, mets la même valeur dans terraform.tfvars, puis réapplique Terraform. |
 
 ## Coûts, sécurité et limites
@@ -345,7 +346,7 @@ Si le CSV contient des ventes, des crypto-actifs ou des données de campagne, ga
 Terraform ne vide pas un bucket ni les datasets contenant des tables créées par dbt. Pour supprimer volontairement les données, vérifie le projet et le bucket ciblés, puis vide leurs contenus avec les commandes GCP adaptées. Après vidage, tu peux lancer :
 
 ~~~powershell
-terraform -chdir=terraform destroy -var-file=terraform.tfvars
+terraform -chdir=terraform destroy '-var-file=terraform.tfvars'
 ~~~
 
 La suppression Terraform laisse les API activées (disable_on_destroy = false). Ne supprime pas le bucket si tu veux conserver l'archive CSV ou les marqueurs d'ingestion.

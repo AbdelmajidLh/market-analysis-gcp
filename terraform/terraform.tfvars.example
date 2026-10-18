@@ -1,4 +1,4 @@
-project_id       = "mon-projet-gcp"
+project_id       = "project-b2238b62-da1a-46fc-a02"
 raw_bucket_name  = "mon-projet-gcp-market-analysis-raw-123456"
 drive_folder_id  = "ID_DU_DOSSIER_DRIVE"
 region           = "europe-west1"

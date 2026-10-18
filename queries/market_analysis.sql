@@ -5,7 +5,7 @@ select
   ticker,
   max(price_date) as latest_price_date,
   array_agg(close order by price_date desc limit 1)[offset(0)] as latest_close
-from `mon-projet-gcp.market_analysis_marts.fct_daily_returns`
+from `project-b2238b62-da1a-46fc-a02.market_analysis_marts.fct_daily_returns`
 group by ticker
 order by ticker;
 
@@ -18,7 +18,7 @@ select
   daily_return_volatility,
   total_volume,
   trading_days
-from `mon-projet-gcp.market_analysis_marts.mart_monthly_performance`
+from `project-b2238b62-da1a-46fc-a02.market_analysis_marts.mart_monthly_performance`
 where month >= date_sub(date_trunc(current_date(), month), interval 12 month)
 order by month desc, monthly_return desc;
 
@@ -29,7 +29,7 @@ with recent as (
     price_date,
     daily_return,
     row_number() over (partition by ticker order by price_date desc) as day_rank
-  from `mon-projet-gcp.market_analysis_marts.fct_daily_returns`
+  from `project-b2238b62-da1a-46fc-a02.market_analysis_marts.fct_daily_returns`
   where price_date >= date_sub(current_date(), interval 45 day)
 )
 select
@@ -51,7 +51,7 @@ select
   previous_close,
   daily_return_pct,
   volume
-from `mon-projet-gcp.market_analysis_marts.fct_daily_returns`
+from `project-b2238b62-da1a-46fc-a02.market_analysis_marts.fct_daily_returns`
 where price_date >= date_sub(current_date(), interval 90 day)
   and abs(daily_return_pct) >= 5
 order by abs(daily_return_pct) desc;
@@ -65,7 +65,7 @@ select
   countif(close is null) as missing_close,
   countif(volume is null) as missing_volume,
   max(_ingested_at) as last_ingestion
-from `mon-projet-gcp.market_analysis_marts.stg_market_prices`
+from `project-b2238b62-da1a-46fc-a02.market_analysis_marts.stg_market_prices`
 group by ticker
 order by ticker;
 
