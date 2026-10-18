@@ -382,13 +382,9 @@ gcloud storage buckets add-iam-policy-binding "gs://${ProjectId}_cloudbuild" `
 
 ## Nettoyage de l'environnement
 
-Terraform ne vide pas un bucket ni les datasets contenant des tables créées par dbt. Pour supprimer volontairement les données, vérifie le projet et le bucket ciblés, puis vide leurs contenus avec les commandes GCP adaptées. Après vidage, tu peux lancer :
+Pour supprimer l'infrastructure et les données qu'elle contient, suis la procédure « Suppression Terraform des ressources et des données » à la fin de ce README. Vérifie le projet et le bucket ciblés avant de commencer.
 
-~~~powershell
-terraform -chdir=terraform destroy '-var-file=terraform.tfvars'
-~~~
-
-La suppression Terraform laisse les API activées (disable_on_destroy = false). Ne supprime pas le bucket si tu veux conserver l'archive CSV ou les marqueurs d'ingestion.
+La suppression Terraform laisse les API activées (`disable_on_destroy = false`). Ne supprime pas le bucket si tu veux conserver l'archive CSV ou les marqueurs d'ingestion.
 
 ## Documentation officielle
 
@@ -408,3 +404,30 @@ La suppression Terraform laisse les API activées (disable_on_destroy = false). 
 ├── sample_data/          # CSV d'exemple
 └── terraform/            # Infrastructure GCP et IAM
 ~~~
+
+## Suppression Terraform des ressources et des données
+
+Par défaut, Terraform refuse de supprimer un bucket non vide et des datasets BigQuery qui contiennent encore des tables ou des vues. Pour autoriser leur suppression avec leur contenu :
+
+1. Dans `terraform/main.tf`, passe temporairement `force_destroy` à `true` sur `google_storage_bucket.raw` et `delete_contents_on_destroy` à `true` sur les datasets `google_bigquery_dataset.raw` et `google_bigquery_dataset.marts`.
+2. Vérifie le plan ciblé :
+
+~~~powershell
+terraform -chdir=terraform plan '-var-file=terraform.tfvars' '-target=google_storage_bucket.raw' '-target=google_bigquery_dataset.raw' '-target=google_bigquery_dataset.marts'
+~~~
+
+3. Si le plan correspond à ces options, applique-les :
+
+~~~powershell
+terraform -chdir=terraform apply '-var-file=terraform.tfvars' '-target=google_storage_bucket.raw' '-target=google_bigquery_dataset.raw' '-target=google_bigquery_dataset.marts'
+~~~
+
+Si une de ces ressources avait déjà été supprimée lors d'une tentative précédente, l'application ciblée peut la recréer afin d'enregistrer la configuration; la destruction complète qui suit la supprimera ensuite.
+
+4. Relance la destruction complète :
+
+~~~powershell
+terraform -chdir=terraform destroy '-var-file=terraform.tfvars'
+~~~
+
+Cette opération supprime aussi les objets du bucket et les tables, vues et données des deux datasets. Après sa réussite, remets les trois options à `false` dans `terraform/main.tf` pour que de futures ressources ne soient pas créées avec la suppression forcée activée. Les API Google restent activées, car `google_project_service.required` utilise `disable_on_destroy = false`.
