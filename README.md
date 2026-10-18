@@ -246,6 +246,31 @@ gcloud run jobs execute drive-csv-ingestor --project $ProjectId --region $Region
 
 Le job archive le fichier sous landing/ dans le bucket, le charge dans une table de staging temporaire, puis fait un MERGE dans market_analysis_raw.market_prices. Il lance ensuite dbt run pour actualiser les modèles analytiques. Un marqueur JSON de fichier est écrit dans state/processed/ après succès; un marqueur state/dbt-pending.json permet de reprendre dbt si la transformation échoue.
 
+#### Comment Python et dbt collaborent
+
+Le programme Python (`ingestion/main.py`) gère l'extraction et le chargement : il lit les CSV du dossier Drive, les archive dans Cloud Storage, puis charge et fusionne les lignes dans `BQ_RAW_DATASET.BQ_RAW_TABLE` (par défaut `market_analysis_raw.market_prices`). Après un `MERGE` réussi, il écrit le marqueur `state/dbt-pending.json`. Quand l'exécution n'a pas d'erreur d'ingestion et que ce marqueur existe, Python lance dbt comme un sous-processus : `dbt run`, depuis le dossier `/app/dbt` dans l'image Cloud Run. Si un CSV échoue, dbt est différé; le marqueur permet de reprendre les transformations à une exécution ultérieure.
+
+Le `Dockerfile` copie le projet `dbt/` dans l'image et y crée `profiles.yml` à partir de `profiles.yml.example`. Le profil `market_analysis` utilise l'adaptateur BigQuery, l'authentification OAuth par identifiants par défaut et les variables d'environnement suivantes :
+
+| Variable | Rôle | Valeur habituelle |
+| --- | --- | --- |
+| `GCP_PROJECT_ID` | Projet BigQuery cible. | Projet configuré dans Terraform. |
+| `BQ_RAW_DATASET` | Dataset source lu par dbt. | `market_analysis_raw` |
+| `DBT_DATASET` | Dataset où dbt crée les modèles. | `market_analysis_marts` |
+| `BQ_LOCATION` | Emplacement BigQuery des jobs et datasets. | `EU` |
+
+Terraform transmet ces variables au job Cloud Run. Python les transmet à dbt lors de son appel. En local, le même profil lit ces variables dans l'environnement et utilise les identifiants ADC créés par `gcloud auth application-default login`. Ainsi, le SQL des modèles est exécuté par dbt avec l'identité Cloud Run en production ou avec ton compte Google local pendant le développement.
+
+La commande `dbt run` découvre les modèles SQL sous `dbt/models/` et détermine leur ordre grâce à `source()` et `ref()` :
+
+1. `models/staging/stg_market_prices.sql` lit `source('raw', 'market_prices')`, c'est-à-dire la table brute `market_analysis_raw.market_prices`, et fournit une vue nettoyée et dédupliquée.
+2. `models/marts/fct_daily_returns.sql` lit cette vue avec `ref('stg_market_prices')` et construit la table des rendements journaliers.
+3. `models/marts/mart_monthly_performance.sql` lit la table précédente avec `ref('fct_daily_returns')` et construit les indicateurs mensuels.
+
+Les types de matérialisation sont définis dans `dbt/dbt_project.yml`; le partitionnement et le clustering sont précisés dans les fichiers SQL des modèles concernés.
+
+Le fichier `queries/market_analysis.sql` est différent : il contient des requêtes d'exploration et de reporting à lancer manuellement dans l'éditeur SQL de BigQuery (ou avec `bq query`). Ni Python ni `dbt run` ne l'exécutent. `dbt run` exécute uniquement les modèles déclarés dans `dbt/models/`.
+
 ### 7. Lancer dbt en local (facultatif)
 
 Configure l'authentification locale sans clé de compte de service :
