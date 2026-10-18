@@ -94,7 +94,7 @@ Si ton fichier a un autre schéma, adapte ensemble :
 3. dbt/models/ : sélection, typage et calculs;
 4. queries/market_analysis.sql et le présent contrat CSV.
 
-L'ingestion est explicite : elle ne déduit pas les types. Le chargement BigQuery associe les colonnes à partir de l'en-tête; les en-têtes doivent donc correspondre au schéma attendu.
+L'ingestion est explicite : elle ne déduit pas les types. Le programme valide l'en-tête, puis BigQuery associe les valeurs par position à un schéma fixe. Les colonnes doivent donc être présentes dans cet ordre exact : `price_date,ticker,open,high,low,close,volume,adjusted_close`.
 
 ## Installer les outils et créer le projet GCP
 
@@ -265,11 +265,13 @@ La synchronisation Cloud Run a déjà lancé dbt automatiquement après l'ingest
 Copy-Item ./dbt/profiles.yml.example ./dbt/profiles.yml
 ~~~
 
-Vérifie la connexion à BigQuery, puis exécute les transformations depuis la racine :
+Vérifie la connexion à BigQuery, puis exécute les transformations depuis le dossier dbt :
 
 ~~~powershell
-dbt --project-dir ./dbt --profiles-dir ./dbt debug
-dbt --project-dir ./dbt --profiles-dir ./dbt run
+Push-Location ./dbt
+dbt debug
+dbt run
+Pop-Location
 ~~~
 
 Les modèles créés dans market_analysis_marts sont :
@@ -327,9 +329,21 @@ Si le CSV contient des ventes, des crypto-actifs ou des données de campagne, ga
 | Valeurs numériques invalides | Utilise un point comme séparateur décimal; les valeurs comme 12,34 doivent être normalisées avant le chargement. |
 | Permission denied BigQuery | L'ingestor a bigquery.jobUser et bigquery.dataEditor sur raw et marts. dbt local a bigquery.jobUser, dataViewer sur raw et dataEditor sur marts. |
 | dbt n'authentifie pas | Vérifie gcloud auth application-default login, GCP_PROJECT_ID, BQ_LOCATION et les droits du compte local. |
-| `PERMISSION_DENIED` au push | Le compte Cloud Build a `roles/artifactregistry.writer` sur le dépôt Artifact Registry. |
+| 403 `storage.objects.get` sur le bucket source Cloud Build | Accorde `roles/storage.objectViewer` au compte de build indiqué dans l'erreur, sur le bucket source `${project_id}_cloudbuild` uniquement. |
+| `artifactregistry.repositories.uploadArtifacts` refusé au push | Accorde `roles/artifactregistry.writer` au compte de build sur le dépôt Artifact Registry. |
+| Cloud Build ne peut pas écrire les logs | Accorde `roles/logging.logWriter` au compte de build dans le projet. |
 | `name unknown: Repository ... not found` au push | Vérifie que le dépôt existe dans le même projet et la même région que l'URL de l'image; compare avec `project_id`, `region` et `artifact_registry_repository` dans `terraform/terraform.tfvars`. |
 | Le job exécute une ancienne image | Incrémente image_tag, reconstruis l'image avec ce tag, mets la même valeur dans terraform.tfvars, puis réapplique Terraform. |
+
+Pour un 403 `storage.objects.get` indiquant le compte Compute Engine par défaut, accorde-lui l'accès en lecture au bucket source Cloud Build :
+
+~~~powershell
+$CloudBuildServiceAccount = "252176821483-compute@developer.gserviceaccount.com"
+gcloud storage buckets add-iam-policy-binding "gs://${ProjectId}_cloudbuild" `
+  --member="serviceAccount:${CloudBuildServiceAccount}" `
+  --role="roles/storage.objectViewer" `
+  --project $ProjectId
+~~~
 
 ## Coûts, sécurité et limites
 

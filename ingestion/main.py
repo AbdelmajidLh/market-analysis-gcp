@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import json
@@ -16,7 +17,7 @@ from typing import Any
 import google.auth
 from google.api_core.exceptions import Conflict, NotFound, PreconditionFailed
 from google.cloud import bigquery, storage
-from google.cloud.bigquery.enums import SourceColumnMatch, SourceFormat
+from google.cloud.bigquery.enums import SourceFormat
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
@@ -50,6 +51,23 @@ def required_env(name: str) -> str:
 def safe_filename(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
     return cleaned or "market_prices.csv"
+
+
+def validate_csv_header(content: bytes, delimiter: str, file_name: str) -> None:
+    expected = [field.name for field in CSV_SCHEMA]
+    try:
+        text = content.decode("utf-8-sig")
+        reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
+        header = next(reader, None)
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError(f"En-tête CSV illisible dans {file_name}.") from exc
+
+    actual = [column.strip() for column in header] if header else []
+    if actual != expected:
+        raise ValueError(
+            f"En-tête CSV invalide dans {file_name}. Colonnes attendues dans cet ordre: "
+            f"{', '.join(expected)}. Colonnes reçues: {', '.join(actual) or '(aucune)'}."
+        )
 
 
 def download_drive_file(drive: Any, file_id: str) -> bytes:
@@ -150,16 +168,10 @@ def run_dbt(
     )
     LOGGER.info("Lancement de dbt run vers le dataset %s.", marts_dataset)
     subprocess.run(
-        [
-            "dbt",
-            "--project-dir",
-            "/app/dbt",
-            "--profiles-dir",
-            "/app/dbt",
-            "run",
-        ],
+        ["dbt", "run"],
         check=True,
         env=environment,
+        cwd="/app/dbt",
     )
 
 
@@ -195,7 +207,6 @@ def get_or_start_load_job(
             source_format=SourceFormat.CSV,
             schema=CSV_SCHEMA,
             skip_leading_rows=1,
-            source_column_match=SourceColumnMatch.NAME,
             field_delimiter=delimiter,
             allow_quoted_newlines=True,
             create_disposition=bigquery.CreateDisposition.CREATE_IF_NEEDED,
@@ -359,12 +370,10 @@ def process_file(
         LOGGER.info("Déjà ingéré: %s (%s)", file_name, file_id)
         return False
 
-    # Persister l'intention avant le chargement pour qu'un redémarrage
-    # rafraîchisse dbt même après un crash entre le MERGE et le marqueur.
-    set_dbt_pending(bucket)
-
     if content is None:
         content = download_drive_file(drive, file_id)
+    validate_csv_header(content, delimiter, file_name)
+
     safe_name = safe_filename(file_name)
     object_name = f"landing/drive_file_id={file_id}/source_key={file_key}/{safe_name}"
     raw_object = bucket.blob(object_name)
@@ -407,6 +416,10 @@ def process_file(
         checksum=checksum,
         modified_time=modified_time,
     )
+
+    # Le MERGE est idempotent. En cas de crash avant les marqueurs, la prochaine
+    # exécution peut rejouer le fichier puis relancer dbt sans perdre de lignes.
+    set_dbt_pending(bucket)
 
     marker_payload = {
         "drive_file_id": file_id,
@@ -485,14 +498,19 @@ def main() -> int:
                 errors.append(file_name)
         pending_dbt = bucket.blob("state/dbt-pending.json")
         if pending_dbt.exists():
-            run_dbt(
-                project_id=project_id,
-                raw_dataset=raw_dataset,
-                marts_dataset=marts_dataset,
-                location=location,
-            )
-            pending_dbt.reload()
-            pending_dbt.delete(if_generation_match=int(pending_dbt.generation))
+            if errors:
+                LOGGER.warning(
+                    "dbt est différé tant que %d fichier(s) CSV sont en erreur.", len(errors)
+                )
+            else:
+                run_dbt(
+                    project_id=project_id,
+                    raw_dataset=raw_dataset,
+                    marts_dataset=marts_dataset,
+                    location=location,
+                )
+                pending_dbt.reload()
+                pending_dbt.delete(if_generation_match=int(pending_dbt.generation))
     finally:
         release_lock(lock, lock_generation)
 
